@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pencatatan Kendaraan</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- SheetJS (Export Excel) -->
+    <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+</head>
+<body class="bg-gray-100 font-sans text-gray-800 antialiased selection:bg-blue-200">
+    <div class="max-w-3xl mx-auto md:py-8">
+        <div class="bg-white md:rounded-2xl shadow-lg overflow-hidden min-h-screen md:min-h-0">
+            
+            <!-- Header & Tabs -->
+            <div class="p-5 border-b border-gray-100 bg-white sticky top-0 z-10">
+                <h1 class="text-2xl font-bold mb-4 text-center text-gray-800">Catatan Oprasional</h1>
+                <div class="flex space-x-2">
+                    <button id="btnBensin" onclick="switchTab('isi_bensin')" class="flex-1 py-3 px-4 rounded-xl font-semibold transition-colors bg-blue-600 text-white shadow-sm">Isi Bensin</button>
+                    <button id="btnJalan" onclick="switchTab('perjalanan')" class="flex-1 py-3 px-4 rounded-xl font-semibold transition-colors bg-gray-100 text-gray-600">Perjalanan</button>
+                </div>
+            </div>
+
+            <!-- Form Input -->
+            <div class="p-5 bg-blue-50/30 border-b border-gray-100">
+                <form id="dataForm" onsubmit="saveData(event)" class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Tanggal</label>
+                        <input type="date" id="tanggal" required class="w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition">
+                    </div>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Odo Awal (KM)</label>
+                            <input type="number" id="odoAwal" required oninput="calcSelisih()" class="w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Odo Akhir (KM)</label>
+                            <input type="number" id="odoAkhir" required oninput="calcSelisih()" class="w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none">
+                        </div>
+                    </div>
+                    
+                    <!-- Selisih otomatis -->
+                    <div class="bg-gray-50 p-3 rounded-xl border border-gray-200 text-center">
+                        <span class="text-sm text-gray-500 block">Selisih Odometer</span>
+                        <span id="selisihText" class="text-xl font-bold text-gray-800">0 KM</span>
+                    </div>
+
+                    <!-- Dynamic Input based on Tab -->
+                    <div id="containerNominal">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Nominal (Rp)</label>
+                        <input type="number" id="nominal" class="w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Contoh: 35000">
+                    </div>
+                    <div id="containerKeterangan" class="hidden">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Keterangan</label>
+                        <input type="text" id="keterangan" class="w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Tujuan / Catatan">
+                    </div>
+
+                    <button type="submit" id="btnSubmit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold p-4 rounded-xl shadow-md transition flex justify-center items-center gap-2">
+                        <span>Simpan Data</span>
+                    </button>
+                </form>
+            </div>
+
+            <!-- Tabel Data -->
+            <div class="p-5">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-lg font-bold text-gray-800" id="tableTitle">Riwayat Bensin</h2>
+                    <button onclick="exportExcel()" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition flex items-center gap-2">
+                        Export Excel
+                    </button>
+                </div>
+                
+                <div class="overflow-x-auto rounded-xl border border-gray-200">
+                    <table class="w-full text-left whitespace-nowrap">
+                        <thead class="bg-gray-100 text-gray-600 text-sm" id="tableHead">
+                            <!-- Header dari JS -->
+                        </thead>
+                        <tbody id="tableBody" class="divide-y divide-gray-100 text-sm">
+                            <tr><td colspan="6" class="p-4 text-center text-gray-500">Memuat data...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // === MASUKKAN URL DARI APPS SCRIPT DI SINI ===
+        const API_URL = 'https://script.google.com/macros/s/AKfycbzPFI94o8Oum0rp4WWUD2lN1Y_IlI5Pfpk9OG0q26Nj7ssV1eiv5vuOagLZQieuKtKX/exec'; 
+        
+        let currentTab = 'isi_bensin';
+        let globalData = [];
+
+        // Set tanggal hari ini otomatis
+        document.getElementById('tanggal').valueAsDate = new Date();
+
+        function switchTab(tab) {
+            currentTab = tab;
+            
+            // Ubah Style Tombol
+            const btnBensin = document.getElementById('btnBensin');
+            const btnJalan = document.getElementById('btnJalan');
+            
+            if (tab === 'isi_bensin') {
+                btnBensin.className = "flex-1 py-3 px-4 rounded-xl font-semibold transition-colors bg-blue-600 text-white shadow-sm";
+                btnJalan.className = "flex-1 py-3 px-4 rounded-xl font-semibold transition-colors bg-gray-100 text-gray-600";
+                document.getElementById('containerNominal').classList.remove('hidden');
+                document.getElementById('containerKeterangan').classList.add('hidden');
+                document.getElementById('nominal').required = true;
+                document.getElementById('keterangan').required = false;
+                document.getElementById('tableTitle').innerText = "Riwayat Bensin";
+            } else {
+                btnJalan.className = "flex-1 py-3 px-4 rounded-xl font-semibold transition-colors bg-blue-600 text-white shadow-sm";
+                btnBensin.className = "flex-1 py-3 px-4 rounded-xl font-semibold transition-colors bg-gray-100 text-gray-600";
+                document.getElementById('containerNominal').classList.add('hidden');
+                document.getElementById('containerKeterangan').classList.remove('hidden');
+                document.getElementById('nominal').required = false;
+                document.getElementById('keterangan').required = true;
+                document.getElementById('tableTitle').innerText = "Riwayat Perjalanan";
+            }
+            loadData();
+        }
+
+        function calcSelisih() {
+            const awal = Number(document.getElementById('odoAwal').value) || 0;
+            const akhir = Number(document.getElementById('odoAkhir').value) || 0;
+            const selisih = akhir > 0 ? (akhir - awal) : 0;
+            document.getElementById('selisihText').innerText = selisih + " KM";
+            return selisih;
+        }
+
+        async function loadData() {
+            document.getElementById('tableBody').innerHTML = '<tr><td colspan="6" class="p-4 text-center text-gray-500 animate-pulse">Memuat data dari Spreadsheet...</td></tr>';
+            try {
+                const response = await fetch(`${API_URL}?sheet=${currentTab}`);
+                const data = await response.json();
+                globalData = data;
+                renderTable(data);
+            } catch (error) {
+                alert("Gagal memuat data. Pastikan URL Apps Script sudah benar.");
+            }
+        }
+
+        function renderTable(data) {
+            const thead = document.getElementById('tableHead');
+            const tbody = document.getElementById('tableBody');
+            
+            if (!data || data.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" class="p-4 text-center text-gray-500">Belum ada data</td></tr>';
+                return;
+            }
+
+            // Render Headers (Baris 1 di Spreadsheet)
+            let headHTML = '<tr>';
+            data[0].forEach(h => headHTML += `<th class="p-3 font-semibold">${h}</th>`);
+            headHTML += `<th class="p-3 font-semibold text-center">Aksi</th></tr>`;
+            thead.innerHTML = headHTML;
+
+            // Render Rows (Mulai dari indeks 1 sampai akhir, di-reverse agar yang terbaru di atas)
+            let bodyHTML = '';
+            for (let i = data.length - 1; i > 0; i--) {
+                const row = data[i];
+                let rowHTML = `<tr class="hover:bg-gray-50 transition-colors">`;
+                
+                // Format khusus kolom nominal ke Rupiah jika ada di tab isi_bensin (indeks ke-4)
+                row.forEach((cell, cellIndex) => {
+                    if (currentTab === 'isi_bensin' && cellIndex === 4) {
+                        const rp = new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(cell || 0);
+                        rowHTML += `<td class="p-3">${rp}</td>`;
+                    } else if (cellIndex === 0 && cell) {
+                        // Format Tanggal ISO agar rapi jika kepanjangan
+                        let dateText = String(cell).substring(0, 10);
+                        rowHTML += `<td class="p-3">${dateText}</td>`;
+                    } else {
+                        rowHTML += `<td class="p-3">${cell}</td>`;
+                    }
+                });
+                
+                // Spreadsheet row index is i + 1 (karena index 0 = row 1, index i = row i+1)
+                rowHTML += `<td class="p-3 text-center"><button onclick="deleteData(${i + 1})" class="text-red-500 font-medium px-3 py-1 bg-red-50 rounded-lg hover:bg-red-100 transition">Hapus</button></td></tr>`;
+                bodyHTML += rowHTML;
+            }
+            tbody.innerHTML = bodyHTML;
+        }
+
+        async function saveData(e) {
+            e.preventDefault();
+            const btn = document.getElementById('btnSubmit');
+            btn.innerHTML = 'Menyimpan...';
+            btn.disabled = true;
+
+            const tanggal = document.getElementById('tanggal').value;
+            const odoAwal = document.getElementById('odoAwal').value;
+            const odoAkhir = document.getElementById('odoAkhir').value;
+            const selisih = calcSelisih();
+            
+            let values = [];
+            if (currentTab === 'isi_bensin') {
+                values = [tanggal, odoAwal, odoAkhir, selisih, document.getElementById('nominal').value];
+            } else {
+                values = [tanggal, odoAwal, odoAkhir, selisih, document.getElementById('keterangan').value];
+            }
+
+            try {
+                await fetch(API_URL, {
+                    method: 'POST',
+                    body: JSON.stringify({ sheetName: currentTab, action: 'insert', values: values })
+                });
+                
+                // Reset form (kecuali odometer akhir yang mungkin bisa jadi awal untuk entri selanjutnya)
+                document.getElementById('odoAwal').value = odoAkhir; 
+                document.getElementById('odoAkhir').value = '';
+                document.getElementById('nominal').value = '';
+                document.getElementById('keterangan').value = '';
+                calcSelisih();
+                
+                await loadData();
+            } catch (error) {
+                alert("Gagal menyimpan data.");
+            }
+            
+            btn.innerHTML = 'Simpan Data';
+            btn.disabled = false;
+        }
+
+        async function deleteData(rowIndex) {
+            if (!confirm('Hapus data ini dari spreadsheet?')) return;
+            
+            document.getElementById('tableBody').innerHTML = '<tr><td colspan="6" class="p-4 text-center text-red-500 animate-pulse">Menghapus data...</td></tr>';
+            try {
+                await fetch(API_URL, {
+                    method: 'POST',
+                    body: JSON.stringify({ sheetName: currentTab, action: 'delete', rowIndex: rowIndex })
+                });
+                await loadData();
+            } catch (error) {
+                alert("Gagal menghapus data.");
+            }
+        }
+
+        function exportExcel() {
+            if(globalData.length < 2) return alert('Tidak ada data untuk di export');
+            
+            // Konversi format data array (array of arrays) ke bentuk object yang disukai SheetJS
+            const headers = globalData[0];
+            const rowsData = globalData.slice(1).map(row => {
+                let obj = {};
+                headers.forEach((h, i) => obj[h] = row[i]);
+                return obj;
+            });
+
+            const worksheet = XLSX.utils.json_to_sheet(rowsData);
+            const workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, worksheet, currentTab);
+            XLSX.writeFile(workbook, `Laporan_${currentTab}.xlsx`);
+        }
+
+        // Load data pertama kali
+        loadData();
+    </script>
+</body>
+</html>
